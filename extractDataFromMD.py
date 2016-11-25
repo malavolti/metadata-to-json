@@ -8,7 +8,7 @@ import json
 
 def main(argv):
    try:
-      # 'i:x:y:hd' significa che 'i','x' e 'y' hanno bisogno di un argomento e viene segnato dal ':', mentre 'h' e 'd' non necessitano di argomenti
+      # 'm:hd' means that 'm' needs an argument(confirmed by ':'), while 'h' and 'd' don't need it
       opts, args = getopt.getopt(sys.argv[1:], 'm:hd', ['metadata=','help','debug' ])
    except getopt.GetoptError as err:
       print str(err)
