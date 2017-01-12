@@ -2,6 +2,8 @@
 #-*- coding: utf-8 -*-
 
 import xml.etree.cElementTree as ET
+from operator import itemgetter
+from collections import OrderedDict
 
 import sys, getopt
 import json
@@ -38,7 +40,9 @@ def main(argv):
    namespaces = {
       'md': 'urn:oasis:names:tc:SAML:2.0:metadata',
       'mdrpi': 'urn:oasis:names:tc:SAML:metadata:rpi',
-      'shibmd': 'urn:mace:shibboleth:metadata:1.0'
+      'shibmd': 'urn:mace:shibboleth:metadata:1.0',
+      'mdattr': 'urn:oasis:names:tc:SAML:metadata:attribute',
+      'saml': 'urn:oasis:names:tc:SAML:2.0:assertion'
    }
 
    if inputfile == None:
@@ -60,13 +64,37 @@ def main(argv):
    list_aa = list()
    list_sp = list()
 
+
    for EntityDescriptor in idp:
+
+      ecs = 'NO EC SUPPORTED'
+
       # Get entityID
-      entityID = EntityDescriptor.get('entityID')   
+      entityID = EntityDescriptor.get('entityID')
 
       # Get RegistrationAuthority
       regInfo = EntityDescriptor.find("./md:Extensions/mdrpi:RegistrationInfo", namespaces)
       regAuth = regInfo.get("registrationAuthority")
+
+      # Get EC Support
+      entityCategories = EntityDescriptor.findall("./md:Extensions/mdattr:EntityAttributes/saml:Attribute[@Name='http://macedir.org/entity-category-support']/saml:AttributeValue", namespaces)
+      saml_ecs = list()
+
+      if (entityCategories != None):
+          for samlAttrValue in entityCategories:
+             if samlAttrValue.text != None:
+                saml_ecs.append(samlAttrValue.text)
+
+      if (len(saml_ecs) != 0):
+          if 'http://refeds.org/category/research-and-scholarship' in saml_ecs:
+             if 'http://www.geant.net/uri/dataprotection-code-of-conduct/v1' in saml_ecs:
+                ecs = 'BOTH'
+             else:
+                ecs = "ONLY RS"
+          elif 'http://www.geant.net/uri/dataprotection-code-of-conduct/v1' in saml_ecs:
+             ecs = "ONLY COCO"
+          else:
+             ecs = "NO EC SUPPORTED"
 
       # Get scope
       scopes = EntityDescriptor.findall("./md:IDPSSODescriptor/md:Extensions/shibmd:Scope[@regexp='false']", namespaces)
@@ -104,20 +132,22 @@ def main(argv):
             else:
                supportContacts.append("mailto:" + supp.text)
 
-      idp = {
-        'entityID':entityID,
-        'scope':idp_scopes,
-        'registrationAuthority':regAuth,
-        'NameIDFormat':name_id_formats,
-        'technicalContacts':technicalContacts,
-        'supportContacts':supportContacts
-      }
+      idp = OrderedDict ([
+        ('entityID',entityID),
+        ('scope',idp_scopes),
+        ('registrationAuthority',regAuth),
+        ('ecs_list',saml_ecs),
+        ('ecs',ecs),
+        ('NameIDFormat',name_id_formats),
+        ('technicalContacts',technicalContacts),
+        ('supportContacts',supportContacts)
+      ])
 
 
       list_idp.append(idp)
    
    result_idps = open("output/IDPs.txt", "w")
-   result_idps.write(json.dumps(sorted(list_idp),sort_keys=True, indent=4))
+   result_idps.write(json.dumps(sorted(list_idp,key=itemgetter('entityID')),sort_keys=False, indent=4))
    result_idps.close()
 
    for EntityDescriptor in aa:
@@ -140,22 +170,44 @@ def main(argv):
          if nameid.text != None:
             name_id_formats.append(nameid.text)
 
-      aa = {
-        'entityID':entityID,
-        'scope':aa_scopes,
-        'NameIDFormat':name_id_formats,
-      }
+      aa = OrderedDict([
+        ('entityID',entityID),
+        ('scope',aa_scopes),
+        ('NameIDFormat',name_id_formats)
+      ]) 
 
 
       list_aa.append(aa)
    
    result_aas = open("output/AAs.txt", "w")
-   result_aas.write(json.dumps(sorted(list_aa),sort_keys=True, indent=4))
+   result_aas.write(json.dumps(sorted(list_aa, key=itemgetter('entityID')),sort_keys=False, indent=4))
    result_aas.close()
 
    for EntityDescriptor in sp:
+      ecs = 'NO GLOBAL ECs'
+
       # Get entityID
       entityID = EntityDescriptor.get('entityID')
+
+      # Get EC Support
+      entityCategories = EntityDescriptor.findall("./md:Extensions/mdattr:EntityAttributes/saml:Attribute[@Name='http://macedir.org/entity-category']/saml:AttributeValue", namespaces)
+      saml_ecs = list()
+
+      if (entityCategories != None):
+          for samlAttrValue in entityCategories:
+             if samlAttrValue.text != None:
+                saml_ecs.append(samlAttrValue.text)
+
+      if (len(saml_ecs) != 0):
+          if 'http://refeds.org/category/research-and-scholarship' in saml_ecs:
+             if 'http://www.geant.net/uri/dataprotection-code-of-conduct/v1' in saml_ecs:
+                ecs = 'BOTH'
+             else:
+                ecs = "ONLY RS"
+          elif 'http://www.geant.net/uri/dataprotection-code-of-conduct/v1' in saml_ecs:
+             ecs = "ONLY COCO"
+          else:
+             ecs = "NO GLOBAL EC"
 
       # Get NameIDFormat
       nameIDformat = EntityDescriptor.findall("./md:SPSSODescriptor/md:NameIDFormat", namespaces)
@@ -181,15 +233,18 @@ def main(argv):
             requestedAttributes.append(auxDictAttr) 
         
 
-         sp = {
-            'entityID':entityID,
-            'NameIDFormat':name_id_formats,
-            'RequestedAttribute':requestedAttributes
-         }
+         sp = OrderedDict ([
+            ('entityID',entityID),
+            ('NameIDFormat',name_id_formats),
+            ('RequestedAttribute',requestedAttributes),
+            ('ecs_list',saml_ecs),
+            ('ecs',ecs)
+         ])
+
          list_sp.append(sp)
       
    result_sps = open("output/SPs.txt", "w")
-   result_sps.write(json.dumps(sorted(list_sp),sort_keys=True,indent=4))
+   result_sps.write(json.dumps(sorted(list_sp, key=itemgetter('entityID')),sort_keys=False,indent=4))
    result_sps.close()
 
 
