@@ -7,6 +7,7 @@ from collections import OrderedDict
 
 import sys, getopt
 import json
+import OpenSSL
 
 def main(argv):
    try:
@@ -42,7 +43,8 @@ def main(argv):
       'mdrpi': 'urn:oasis:names:tc:SAML:metadata:rpi',
       'shibmd': 'urn:mace:shibboleth:metadata:1.0',
       'mdattr': 'urn:oasis:names:tc:SAML:metadata:attribute',
-      'saml': 'urn:oasis:names:tc:SAML:2.0:assertion'
+      'saml': 'urn:oasis:names:tc:SAML:2.0:assertion',
+      'ds': 'http://www.w3.org/2000/09/xmldsig#'
    }
 
    if inputfile == None:
@@ -112,6 +114,27 @@ def main(argv):
          if nameid.text != None:
             name_id_formats.append(nameid.text)
 
+      # Check Signing MD certificates
+      cert_sign = EntityDescriptor.findall('md:IDPSSODescriptor/md:KeyDescriptor[@use="signing"]/ds:KeyInfo/ds:X509Data/ds:X509Certificate', namespaces)
+      certs_sign = list()
+
+      for cert in cert_sign:
+         if cert.text != None:
+            aux = "-----BEGIN CERTIFICATE-----"+cert.text+"-----END CERTIFICATE-----\n"
+            x509 = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, aux)
+            certs_sign.append(x509.get_notAfter())
+
+      # Check Encryption MD certificates
+      cert_encr = EntityDescriptor.findall('md:IDPSSODescriptor/md:KeyDescriptor[@use="encryption"]/ds:KeyInfo/ds:X509Data/ds:X509Certificate', namespaces)
+      certs_encr = list()
+
+      for cert in cert_encr:
+         if cert.text != None:
+            aux = "-----BEGIN CERTIFICATE-----"+cert.text+"-----END CERTIFICATE-----\n"
+            x509 = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, aux)
+            certs_encr.append(x509.get_notAfter())
+
+
       # Get technical contacts of an IdP
       technicalContactPerson = EntityDescriptor.findall("./md:ContactPerson[@contactType='technical']/md:EmailAddress", namespaces)
       supportContactPerson = EntityDescriptor.findall("./md:ContactPerson[@contactType='support']/md:EmailAddress", namespaces)
@@ -138,6 +161,8 @@ def main(argv):
         ('registrationAuthority',regAuth),
         ('ecs_list',saml_ecs),
         ('ecs',ecs),
+        ('md_certs_sign',certs_sign),
+        ('md_certs_encr',certs_encr),
         ('NameIDFormat',name_id_formats),
         ('technicalContacts',technicalContacts),
         ('supportContacts',supportContacts)
@@ -218,6 +243,16 @@ def main(argv):
             if nameid.text != None:
                name_id_formats.append(nameid.text)
 
+      # Check Encryption MD certificates
+      cert_encr = EntityDescriptor.findall('md:SPSSODescriptor/md:KeyDescriptor/ds:KeyInfo/ds:X509Data/ds:X509Certificate', namespaces)
+      certs_encr = list()
+
+      for cert in cert_encr:
+         if cert.text != None:
+            aux = "-----BEGIN CERTIFICATE-----"+cert.text+"-----END CERTIFICATE-----\n"
+            x509 = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, aux)
+            certs_encr.append(x509.get_notAfter())
+
       # Get RequestedAttribute
       reqAttr = EntityDescriptor.findall("./md:SPSSODescriptor/md:AttributeConsumingService/md:RequestedAttribute", namespaces)
       requestedAttributes = list()
@@ -236,6 +271,7 @@ def main(argv):
          sp = OrderedDict ([
             ('entityID',entityID),
             ('NameIDFormat',name_id_formats),
+            ('cert_encr',certs_encr),
             ('RequestedAttribute',requestedAttributes),
             ('ecs_list',saml_ecs),
             ('ecs',ecs)
