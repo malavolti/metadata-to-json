@@ -9,6 +9,8 @@ import sys, getopt
 import json
 import OpenSSL
 
+OUTPUT="/opt/metadata-to-json/output"
+
 def main(argv):
    try:
       # 'm:hd' means that 'm' needs an argument(confirmed by ':'), while 'h' and 'd' don't need it
@@ -16,7 +18,7 @@ def main(argv):
    except getopt.GetoptError as err:
       print str(err)
       print 'Usage: ./extractDataFromMD.py -m <md_inputfile>'
-      print 'The results will write into "output/IDPs.txt", "output/AAs.txt" and "outputSPs.txt"'
+      print "The results will write into '%s/IDPs.txt', '%s/AAs.txt' and '%s/SPs.txt'" % (OUTPUT,OUTPUT,OUTPUT)
       sys.exit(2)
 
    inputfile = None
@@ -26,7 +28,7 @@ def main(argv):
    for opt, arg in opts:
       if opt in ('-h', '--help'):
          print 'Usage: ./extractDataFromMD.py -m <md_inputfile>'
-         print 'The results will write into "output/IDPs.txt", "output/AAs.txt" and "output/SPs.txt"'
+         print "The results will write into '%s/IDPs.txt', '%s/AAs.txt' and '%s/SPs.txt'" % (OUTPUT,OUTPUT,OUTPUT)
          sys.exit()
       elif opt in ('-m', '--metadata'):
          inputfile = arg
@@ -35,7 +37,7 @@ def main(argv):
          _debug = 1
       else:
          print 'Usage: ./extractDataFromMD.py -m <md_inputfile>'
-         print 'The results will write into "output/IDPs.txt", "output/AAs.txt" and "output/SPs.txt"'
+         print "The results will write into '%s/IDPs.txt', '%s/AAs.txt' and '%s/SPs.txt'" % (OUTPUT,OUTPUT,OUTPUT)
          sys.exit()
 
    namespaces = {
@@ -49,7 +51,7 @@ def main(argv):
 
    if inputfile == None:
       print 'Usage: ./extractDataFromMD.py -m <md_inputfile>'
-      print 'The results will write into "output/IDPs.txt", "output/AAs.txt" and "output/SPs.txt"'
+      print "The results will write into '%s/IDPs.txt', '%s/AAs.txt' and '%s/SPs.txt'" % (OUTPUT,OUTPUT,OUTPUT)
       sys.exit()
 
    tree = ET.parse(inputfile)
@@ -171,7 +173,7 @@ def main(argv):
 
       list_idp.append(idp)
    
-   result_idps = open("output/IDPs.txt", "w")
+   result_idps = open(OUTPUT + "/IDPs.txt", "w")
    result_idps.write(json.dumps(sorted(list_idp,key=itemgetter('entityID')),sort_keys=False, indent=4))
    result_idps.close()
 
@@ -204,7 +206,7 @@ def main(argv):
 
       list_aa.append(aa)
    
-   result_aas = open("output/AAs.txt", "w")
+   result_aas = open(OUTPUT + "/AAs.txt", "w")
    result_aas.write(json.dumps(sorted(list_aa, key=itemgetter('entityID')),sort_keys=False, indent=4))
    result_aas.close()
 
@@ -279,7 +281,7 @@ def main(argv):
 
          list_sp.append(sp)
       
-   result_sps = open("output/SPs.txt", "w")
+   result_sps = open(OUTPUT + "/SPs.txt", "w")
    result_sps.write(json.dumps(sorted(list_sp, key=itemgetter('entityID')),sort_keys=False,indent=4))
    result_sps.close()
 
