@@ -41,12 +41,14 @@ def main(argv):
          sys.exit()
 
    namespaces = {
+      'xml':'http://www.w3.org/XML/1998/namespace',
       'md': 'urn:oasis:names:tc:SAML:2.0:metadata',
       'mdrpi': 'urn:oasis:names:tc:SAML:metadata:rpi',
       'shibmd': 'urn:mace:shibboleth:metadata:1.0',
       'mdattr': 'urn:oasis:names:tc:SAML:metadata:attribute',
       'saml': 'urn:oasis:names:tc:SAML:2.0:assertion',
-      'ds': 'http://www.w3.org/2000/09/xmldsig#'
+      'ds': 'http://www.w3.org/2000/09/xmldsig#',
+      'mdui': 'urn:oasis:names:tc:SAML:metadata:ui'
    }
 
    if inputfile == None:
@@ -72,6 +74,9 @@ def main(argv):
    for EntityDescriptor in idp:
 
       ecs = 'NO EC SUPPORTED'
+      pp_flag = 'Privacy Policy assente'
+      info_flag = 'Info Page assente'
+      logo_flag = 'Logo non presente'
 
       # Get entityID
       entityID = EntityDescriptor.get('entityID')
@@ -79,6 +84,10 @@ def main(argv):
       # Get RegistrationAuthority
       regInfo = EntityDescriptor.find("./md:Extensions/mdrpi:RegistrationInfo", namespaces)
       regAuth = regInfo.get("registrationAuthority")
+
+      # Get RegistrationInstant
+      regInfo = EntityDescriptor.find("./md:Extensions/mdrpi:RegistrationInfo", namespaces)
+      regInst = regInfo.get("registrationInstant")
 
       # Get EC Support
       entityCategories = EntityDescriptor.findall("./md:Extensions/mdattr:EntityAttributes/saml:Attribute[@Name='http://macedir.org/entity-category-support']/saml:AttributeValue", namespaces)
@@ -107,7 +116,42 @@ def main(argv):
       for scope in scopes:
          if scope.text != None:
             idp_scopes.append(scope.text)
-    
+
+      # Get MDUI Privacy Policy
+      privacy_policies = EntityDescriptor.findall("./md:IDPSSODescriptor/md:Extensions/mdui:UIInfo/mdui:PrivacyStatementURL", namespaces)
+      pp_list = list()
+
+      for pp in privacy_policies:
+          lang = pp.get("{http://www.w3.org/XML/1998/namespace}lang")
+          pp_list.append("%s - %s" % (lang,pp.text))
+
+      if (len(pp_list) != 0):
+          pp_flag = 'Privacy Policy presente'
+
+      # Get MDUI Info Page
+      info_pages = EntityDescriptor.findall("./md:IDPSSODescriptor/md:Extensions/mdui:UIInfo/mdui:InformationURL", namespaces)
+      info_list = list()
+
+      for infop in info_pages:
+          lang = infop.get("{http://www.w3.org/XML/1998/namespace}lang")
+          info_list.append("%s - %s" % (lang,infop.text))
+
+      if (len(info_list) != 0):
+          info_flag = 'Info Page presente'
+
+      # Get MDUI Logos
+      logo_urls = EntityDescriptor.findall("./md:IDPSSODescriptor/md:Extensions/mdui:UIInfo/mdui:Logo", namespaces)
+      logos_list = list()
+
+      for logo in logo_urls:
+          lang = logo.get("{http://www.w3.org/XML/1998/namespace}lang")
+          width = logo.get("width")
+          height = logo.get("height")
+          logos_list.append("%s - %sx%s - %s" % (lang,width,height,logo.text))
+
+      if (len(logos_list) != 0):
+          logo_flag = 'Logo presente'
+
       # Get NameIDFormat
       nameIDformat = EntityDescriptor.findall("./md:IDPSSODescriptor/md:NameIDFormat", namespaces)
       name_id_formats = list()
@@ -161,6 +205,13 @@ def main(argv):
         ('entityID',entityID),
         ('scope',idp_scopes),
         ('registrationAuthority',regAuth),
+        ('registrationInstant',regInst),
+        ('pp_flag', pp_flag),
+        ('pp_list', pp_list),
+        ('info_flag', info_flag),
+        ('info_list', info_list),
+        ('logo_flag', logo_flag),
+        ('logos_list', logos_list),
         ('ecs_list',saml_ecs),
         ('ecs',ecs),
         ('md_certs_sign',certs_sign),
@@ -181,6 +232,14 @@ def main(argv):
       # Get entityID
       entityID = EntityDescriptor.get('entityID')   
 
+      # Get RegistrationAuthority
+      regInfo = EntityDescriptor.find("./md:Extensions/mdrpi:RegistrationInfo", namespaces)
+      regAuth = regInfo.get("registrationAuthority")
+
+      # Get RegistrationInstant
+      regInfo = EntityDescriptor.find("./md:Extensions/mdrpi:RegistrationInfo", namespaces)
+      regInst = regInfo.get("registrationInstant")
+
       # Get scope
       scopes = EntityDescriptor.findall("./md:AttributeAuthorityDescriptor/md:Extensions/shibmd:Scope[@regexp='false']", namespaces)
       aa_scopes = list()
@@ -199,6 +258,8 @@ def main(argv):
 
       aa = OrderedDict([
         ('entityID',entityID),
+        ('registrationAuthority',regAuth),
+        ('registrationInstant',regInst),
         ('scope',aa_scopes),
         ('NameIDFormat',name_id_formats)
       ]) 
@@ -212,9 +273,18 @@ def main(argv):
 
    for EntityDescriptor in sp:
       ecs = 'NO GLOBAL ECs'
+      pp_flag = 'Privacy Policy assente'
 
       # Get entityID
       entityID = EntityDescriptor.get('entityID')
+
+      # Get RegistrationAuthority
+      regInfo = EntityDescriptor.find("./md:Extensions/mdrpi:RegistrationInfo", namespaces)
+      regAuth = regInfo.get("registrationAuthority")
+
+      # Get RegistrationInstant
+      regInfo = EntityDescriptor.find("./md:Extensions/mdrpi:RegistrationInfo", namespaces)
+      regInst = regInfo.get("registrationInstant")
 
       # Get EC Support
       entityCategories = EntityDescriptor.findall("./md:Extensions/mdattr:EntityAttributes/saml:Attribute[@Name='http://macedir.org/entity-category']/saml:AttributeValue", namespaces)
@@ -245,6 +315,17 @@ def main(argv):
             if nameid.text != None:
                name_id_formats.append(nameid.text)
 
+      # Get MDUI Privacy Policy
+      privacy_policies = EntityDescriptor.findall("./md:SPSSODescriptor/md:Extensions/mdui:UIInfo/mdui:PrivacyStatementURL", namespaces)
+      pp_list = list()
+
+      for pp in privacy_policies:
+          lang = pp.get("{http://www.w3.org/XML/1998/namespace}lang")
+          pp_list.append("%s:%s" % (lang,pp.text))
+
+      if (len(pp_list) != 0):
+          pp_flag = 'Privacy Policy presente'
+
       # Check Encryption MD certificates
       cert_encr = EntityDescriptor.findall('md:SPSSODescriptor/md:KeyDescriptor/ds:KeyInfo/ds:X509Data/ds:X509Certificate', namespaces)
       certs_encr = list()
@@ -272,6 +353,10 @@ def main(argv):
 
          sp = OrderedDict ([
             ('entityID',entityID),
+            ('registrationAuthority',regAuth),
+            ('registrationInstant',regInst),
+            ('pp_flag', pp_flag),
+            ('pp_list', pp_list),
             ('NameIDFormat',name_id_formats),
             ('cert_encr',certs_encr),
             ('RequestedAttribute',requestedAttributes),
