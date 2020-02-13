@@ -1,4 +1,4 @@
-#!/usr/bin/env python 
+#!/usr/bin/env python3 
 #-*- coding: utf-8 -*-
 
 import xml.etree.cElementTree as ET
@@ -8,6 +8,12 @@ from collections import OrderedDict
 import sys, getopt
 import json
 import OpenSSL
+import urllib.request, socket
+from urllib.error import URLError, HTTPError
+
+# timeout in seconds
+timeout = 7
+socket.setdefaulttimeout(timeout)
 
 OUTPUT="/opt/metadata-to-json/output"
 
@@ -16,9 +22,9 @@ def main(argv):
       # 'm:hd' means that 'm' needs an argument(confirmed by ':'), while 'h' and 'd' don't need it
       opts, args = getopt.getopt(sys.argv[1:], 'm:hd', ['metadata=','help','debug' ])
    except getopt.GetoptError as err:
-      print str(err)
-      print 'Usage: ./extractDataFromMD.py -m <md_inputfile>'
-      print "The results will write into '%s/IDPs.txt', '%s/AAs.txt' and '%s/SPs.txt'" % (OUTPUT,OUTPUT,OUTPUT)
+      print (str(err))
+      print ('Usage: ./extractDataFromMD.py -m <md_inputfile>')
+      print ("The results will write into '%s/IDPs.txt', '%s/AAs.txt' and '%s/SPs.txt'" % (OUTPUT,OUTPUT,OUTPUT))
       sys.exit(2)
 
    inputfile = None
@@ -27,8 +33,8 @@ def main(argv):
 
    for opt, arg in opts:
       if opt in ('-h', '--help'):
-         print 'Usage: ./extractDataFromMD.py -m <md_inputfile>'
-         print "The results will write into '%s/IDPs.txt', '%s/AAs.txt' and '%s/SPs.txt'" % (OUTPUT,OUTPUT,OUTPUT)
+         print ('Usage: ./extractDataFromMD.py -m <md_inputfile>')
+         print ("The results will write into '%s/IDPs.txt', '%s/AAs.txt' and '%s/SPs.txt'" % (OUTPUT,OUTPUT,OUTPUT))
          sys.exit()
       elif opt in ('-m', '--metadata'):
          inputfile = arg
@@ -36,8 +42,8 @@ def main(argv):
          global _debug
          _debug = 1
       else:
-         print 'Usage: ./extractDataFromMD.py -m <md_inputfile>'
-         print "The results will write into '%s/IDPs.txt', '%s/AAs.txt' and '%s/SPs.txt'" % (OUTPUT,OUTPUT,OUTPUT)
+         print ('Usage: ./extractDataFromMD.py -m <md_inputfile>')
+         print ("The results will write into '%s/IDPs.txt', '%s/AAs.txt' and '%s/SPs.txt'" % (OUTPUT,OUTPUT,OUTPUT))
          sys.exit()
 
    namespaces = {
@@ -52,8 +58,8 @@ def main(argv):
    }
 
    if inputfile == None:
-      print 'Usage: ./extractDataFromMD.py -m <md_inputfile>'
-      print "The results will write into '%s/IDPs.txt', '%s/AAs.txt' and '%s/SPs.txt'" % (OUTPUT,OUTPUT,OUTPUT)
+      print ('Usage: ./extractDataFromMD.py -m <md_inputfile>')
+      print ("The results will write into '%s/IDPs.txt', '%s/AAs.txt' and '%s/SPs.txt'" % (OUTPUT,OUTPUT,OUTPUT))
       sys.exit()
 
    tree = ET.parse(inputfile)
@@ -123,7 +129,24 @@ def main(argv):
 
       for pp in privacy_policies:
           lang = pp.get("{http://www.w3.org/XML/1998/namespace}lang")
-          pp_list.append("%s - %s" % (lang,pp.text))
+          
+          status_pp_code = 200
+          status_pp_reason = ""
+
+          try:
+             response = urllib.request.urlopen(pp.text)
+          except URLError as e:
+             if hasattr(e, 'reason'):
+                status_pp_reason = e.reason
+             if hasattr(e, 'code'):
+                status_pp_code = e.code
+
+          if (status_pp_reason):
+             pp_list.append("%s - %s - %s - %s" % (str(status_pp_code),status_pp_reason,lang,pp.text))
+          elif(status_pp_code != 200):
+             pp_list.append("%s - %s - %s" % (str(status_pp_code),lang,pp.text))
+          else:
+             pp_list.append("%s - %s" % (lang,pp.text))
 
       if (len(pp_list) != 0):
           pp_flag = 'Privacy Policy presente'
@@ -134,7 +157,24 @@ def main(argv):
 
       for infop in info_pages:
           lang = infop.get("{http://www.w3.org/XML/1998/namespace}lang")
-          info_list.append("%s - %s" % (lang,infop.text))
+
+          status_info_code = 200
+          status_info_reason = ""
+
+          try:
+             response = urllib.request.urlopen(pp.text)
+          except URLError as e:
+             if hasattr(e, 'reason'):
+                status_info_reason = e.reason
+             if hasattr(e, 'code'):
+                status_info_code = e.code
+
+          if (status_info_reason):
+             info_list.append("%s - %s - %s - %s" % (str(status_pp_code),status_pp_reason,lang,infop.text))
+          elif(status_info_code != 200):
+             info_list.append("%s - %s - %s" % (str(status_pp_code),lang,infop.text))
+          else:
+             info_list.append("%s - %s" % (lang,infop.text))
 
       if (len(info_list) != 0):
           info_flag = 'Info Page presente'
@@ -168,7 +208,7 @@ def main(argv):
          if cert.text != None:
             aux = "-----BEGIN CERTIFICATE-----"+cert.text+"-----END CERTIFICATE-----\n"
             x509 = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, aux)
-            certs_sign.append(x509.get_notAfter())
+            certs_sign.append(str(x509.get_notAfter(), 'utf-8'))
 
       # Check Encryption MD certificates
       cert_encr = EntityDescriptor.findall('md:IDPSSODescriptor/md:KeyDescriptor[@use="encryption"]/ds:KeyInfo/ds:X509Data/ds:X509Certificate', namespaces)
@@ -178,7 +218,7 @@ def main(argv):
          if cert.text != None:
             aux = "-----BEGIN CERTIFICATE-----"+cert.text+"-----END CERTIFICATE-----\n"
             x509 = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, aux)
-            certs_encr.append(x509.get_notAfter())
+            certs_encr.append(str(x509.get_notAfter(), 'utf-8'))
 
 
       # Get technical contacts of an IdP
@@ -334,7 +374,7 @@ def main(argv):
          if cert.text != None:
             aux = "-----BEGIN CERTIFICATE-----"+cert.text+"-----END CERTIFICATE-----\n"
             x509 = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, aux)
-            certs_encr.append(x509.get_notAfter())
+            certs_encr.append(str(x509.get_notAfter(), 'utf-8'))
 
       # Get RequestedAttribute
       reqAttr = EntityDescriptor.findall("./md:SPSSODescriptor/md:AttributeConsumingService/md:RequestedAttribute", namespaces)
