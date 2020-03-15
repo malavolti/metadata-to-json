@@ -1,4 +1,3 @@
-IDPs.txt
-AAs.txt
-SPs.txt
+*.json
 *.xml
+*.log
