@@ -105,7 +105,7 @@ def getKeywords(EntityDescriptor,namespaces,entType='idp'):
     if (entType.lower() == 'idp'):
        keywords = EntityDescriptor.findall("./md:IDPSSODescriptor/md:Extensions/mdui:UIInfo/mdui:Keywords", namespaces)
     if (entType.lower() == 'sp'):
-       keywords = EntityDescriptor.findall("./md:IDPSSODescriptor/md:Extensions/mdui:UIInfo/mdui:Keywords", namespaces)
+       keywords = EntityDescriptor.findall("./md:SPSSODescriptor/md:Extensions/mdui:UIInfo/mdui:Keywords", namespaces)
 
     for kw in keywords:
         kw_dict = dict()
@@ -266,11 +266,11 @@ def getCerts(EntityDescriptor,namespaces,entType,certType=None):
     if (entType.lower() == 'idp'):
        if (certType.lower() == 'signing'):
           # Check Signing MD certificates
-          certs = EntityDescriptor.findall('md:IDPSSODescriptor/md:KeyDescriptor[@use="signing"]/ds:KeyInfo/ds:X509Data/ds:X509Certificate', namespaces)
+          certs = EntityDescriptor.findall('./md:IDPSSODescriptor/md:KeyDescriptor[@use="signing"]/ds:KeyInfo/ds:X509Data/ds:X509Certificate', namespaces)
        if (certType.lower() == 'encryption'):
-          certs = EntityDescriptor.findall('md:IDPSSODescriptor/md:KeyDescriptor[@use="encryption"]/ds:KeyInfo/ds:X509Data/ds:X509Certificate', namespaces)
+          certs = EntityDescriptor.findall('./md:IDPSSODescriptor/md:KeyDescriptor[@use="encryption"]/ds:KeyInfo/ds:X509Data/ds:X509Certificate', namespaces)
     if (entType.lower() == 'sp'):
-      certs = EntityDescriptor.findall('md:SPSSODescriptor/md:KeyDescriptor/ds:KeyInfo/ds:X509Data/ds:X509Certificate', namespaces)
+      certs = EntityDescriptor.findall('./md:SPSSODescriptor/md:KeyDescriptor/ds:KeyInfo/ds:X509Data/ds:X509Certificate', namespaces)
 
     for crt in certs:
         if crt.text != None:
@@ -297,6 +297,21 @@ def getContacts(EntityDescriptor,namespaces,contactType):
               contact_list.append("mailto:" + ctc.text)      
 
     return contact_list
+
+
+# Get EncryptionMethod of SPs
+def getEncryptionMethods(EntityDescriptor,namespaces):
+    
+    enc_method_list = list()
+    enc_methods = EntityDescriptor.findall("./md:SPSSODescriptor/md:KeyDescriptor/md:EncryptionMethod", namespaces)
+    
+    if (enc_methods):
+       for enc_mtd in enc_methods:
+           em = enc_mtd.get("Algorithm")
+           em_value = em.split("#")[1]
+           enc_method_list.append(em_value)
+
+    return enc_method_list
 
 
 def main(argv):
@@ -557,6 +572,9 @@ def main(argv):
       # Check Encryption MD certificates
       certs_encr = getCerts(EntityDescriptor,namespaces,'sp')
 
+      # Get EncryptionMethods
+      enc_mtds = getEncryptionMethods(EntityDescriptor,namespaces)
+
       # Get RequestedAttribute
       reqAttr = EntityDescriptor.findall("./md:SPSSODescriptor/md:AttributeConsumingService/md:RequestedAttribute", namespaces)
       requestedAttributes = list()
@@ -579,6 +597,7 @@ def main(argv):
             ('pp_list', pp_list),
             ('NameIDFormat',name_id_formats),
             ('cert_encr',certs_encr),
+            ('enc_mtds',enc_mtds),
             ('RequestedAttribute',requestedAttributes),
             ('ecs_list',saml_ecs),
             ('ecs',ecs)
