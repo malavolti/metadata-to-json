@@ -29,6 +29,7 @@ def getRegistrationAuthority(EntityDescriptor, namespaces):
     else:
        return ''
 
+
 def getRegistrationInstant(EntityDescriptor, namespaces):
     regInfo = EntityDescriptor.find("./md:Extensions/mdrpi:RegistrationInfo", namespaces)
 
@@ -39,7 +40,6 @@ def getRegistrationInstant(EntityDescriptor, namespaces):
 
 
 def getEntityCategories(EntityDescriptor, namespaces):
-
     saml_ecs = list()
     entityCategories = EntityDescriptor.findall("./md:Extensions/mdattr:EntityAttributes/saml:Attribute[@Name='http://macedir.org/entity-category-support']/saml:AttributeValue", namespaces)
 
@@ -49,7 +49,7 @@ def getEntityCategories(EntityDescriptor, namespaces):
               saml_ecs.append(samlAttrValue.text)
     return saml_ecs
 
-
+# Get Scopes
 def getScopes(EntityDescriptor,namespaces,entityType='idp'):
 
     scope_list = list()
@@ -81,7 +81,7 @@ def getPrivacyStatementURLsAndCheckThem(EntityDescriptor,namespaces,entType='sp'
         status_pp_reason = ""
 
         try:
-           response = urllib.request.urlopen(pp.text)
+           response = urllib.request.urlopen(pp.text,timeout=40)
         except URLError as e:
            if hasattr(e, 'reason'):
               status_pp_reason = e.reason
@@ -150,7 +150,7 @@ def getInformationURLsAndCheckThem(EntityDescriptor,namespaces,entType='idp'):
         status_info_reason = ""
 
         try:
-           response = urllib.request.urlopen(pp.text)
+           response = urllib.request.urlopen(infop.text,timeout=40)
         except URLError as e:
            if hasattr(e, 'reason'):
               status_info_reason = e.reason
@@ -158,9 +158,9 @@ def getInformationURLsAndCheckThem(EntityDescriptor,namespaces,entType='idp'):
               status_info_code = e.code
 
         if (status_info_reason):
-           info_list.append("%s - %s - %s - %s" % (str(status_pp_code),status_pp_reason,lang,infop.text))
+           info_list.append("%s - %s - %s - %s" % (str(status_info_code),status_info_reason,lang,infop.text))
         elif(status_info_code != 200):
-           info_list.append("%s - %s - %s" % (str(status_pp_code),lang,infop.text))
+           info_list.append("%s - %s - %s" % (str(status_info_code),lang,infop.text))
         else:
            info_list.append("%s - %s" % (lang,infop.text))
 
@@ -314,6 +314,15 @@ def getEncryptionMethods(EntityDescriptor,namespaces):
     return enc_method_list
 
 
+# Get SP supporting AES128-GCM
+def hasGCM(EntityDescriptor,namespaces):
+    gcm = EntityDescriptor.find("./md:SPSSODescriptor/md:KeyDescriptor/md:EncryptionMethod[@Algorithm='http://www.w3.org/2009/xmlenc11#aes128-gcm']", namespaces)
+    if (gcm != None):
+       return True
+    else:
+       return False
+
+
 def main(argv):
    try:
       # 'm:hd' means that 'm' needs an argument(confirmed by ':'), while 'h' and 'd' don't need it
@@ -373,8 +382,10 @@ def main(argv):
    list_idp = list()
    list_aa = list()
    list_sp = list()
+   list_default_gcm_sp = list()
    list_eds = list()
 
+   # IDPSSODescriptor
    for EntityDescriptor in idp:
 
       ecs = "NO EC SUPPORTED"
@@ -417,12 +428,14 @@ def main(argv):
 
       # Get MDUI Privacy Policy
       pp_list = getPrivacyStatementURLs(EntityDescriptor,namespaces,'idp')
+      #pp_list = getPrivacyStatementURLsAndCheckThem(EntityDescriptor,namespaces,'idp')
 
       if (len(pp_list) != 0):
          pp_flag = 'Privacy Policy presente'
 
       # Get MDUI Info Page
       info_list = getInformationURLs(EntityDescriptor,namespaces,'idp')
+      #info_list = getInformationURLsAndCheckThem(EntityDescriptor,namespaces,'idp')
 
       if (len(info_list) != 0):
          info_flag = 'Information Page presente'
@@ -485,7 +498,7 @@ def main(argv):
 
    
    result_idps = open(OUTPUT + "/IDPs.json", "w")
-   result_idps.write(json.dumps(sorted(list_idp,key=itemgetter('entityID')),sort_keys=False, indent=4))
+   result_idps.write(json.dumps(sorted(list_idp,key=itemgetter('entityID')),sort_keys=False, indent=4, ensure_ascii=False))
    result_idps.close()
 
    result_eds = open(OUTPUT + "/EDS.json", "w",encoding=None)
@@ -493,6 +506,7 @@ def main(argv):
    result_eds.close()
 
 
+   # AADescriptor
    for EntityDescriptor in aa:
       # Get entityID
       entityID = getEntityID(EntityDescriptor,namespaces)   
@@ -517,13 +531,13 @@ def main(argv):
         ('NameIDFormat',name_id_formats)
       ]) 
 
-
       list_aa.append(aa)
    
    result_aas = open(OUTPUT + "/AAs.json", "w")
-   result_aas.write(json.dumps(sorted(list_aa, key=itemgetter('entityID')),sort_keys=False, indent=4))
+   result_aas.write(json.dumps(sorted(list_aa, key=itemgetter('entityID')),sort_keys=False, indent=4, ensure_ascii=False))
    result_aas.close()
 
+   # SPSSODescriptor
    for EntityDescriptor in sp:
       ecs = 'NO GLOBAL ECs'
       pp_flag = 'Privacy Policy assente'
@@ -589,6 +603,7 @@ def main(argv):
             }
             requestedAttributes.append(auxDictAttr) 
         
+
       sp = OrderedDict ([
             ('entityID',entityID),
             ('registrationAuthority',regAuth),
@@ -604,10 +619,27 @@ def main(argv):
       ])
 
       list_sp.append(sp)
-      
+
+      #isSPgcm = hasGCM(EntityDescriptor,namespaces)
+
+      # Create a list with SPs that doesn't have any EncryptionMethods into their Metadata
+      # or that doesn't have the new AES128-GCM algorithm into their EncryptionMethods
+      if (not enc_mtds):
+         no_enc_mtds_sp = OrderedDict ([
+            ('entityID',entityID),
+            ('registrationAuthority',regAuth),
+         ])
+         
+         list_default_gcm_sp.append(no_enc_mtds_sp)
+
    result_sps = open(OUTPUT + "/SPs.json", "w")
-   result_sps.write(json.dumps(sorted(list_sp, key=itemgetter('entityID')),sort_keys=False,indent=4))
+   result_sps.write(json.dumps(sorted(list_sp, key=itemgetter('entityID')),sort_keys=False,indent=4, ensure_ascii=False))
    result_sps.close()
+
+   default_gcm_sps = open(OUTPUT + "/default-gcm-sps.json", "w")
+   default_gcm_sps.write(json.dumps(sorted(list_default_gcm_sp, key=itemgetter('entityID')),sort_keys=False,indent=4, ensure_ascii=False))
+   default_gcm_sps.close()
+
 
 
 if __name__ == "__main__":
