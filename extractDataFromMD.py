@@ -7,6 +7,7 @@ from collections import OrderedDict
 
 import sys, getopt
 import json
+import os
 import OpenSSL
 import urllib.request, socket
 from urllib.error import URLError, HTTPError
@@ -15,7 +16,8 @@ from urllib.error import URLError, HTTPError
 timeout = 7
 socket.setdefaulttimeout(timeout)
 
-OUTPUT="/opt/metadata-to-json/output"
+cwd = os.getcwd()
+OUTPUT=cwd+"/output"
 
 def getEntityID(EntityDescriptor, namespaces):
     return EntityDescriptor.get('entityID')
@@ -274,7 +276,7 @@ def getCerts(EntityDescriptor,namespaces,entType,certType=None):
 
     for crt in certs:
         if crt.text != None:
-           aux = "-----BEGIN CERTIFICATE-----"+crt.text+"-----END CERTIFICATE-----\n"
+           aux = "-----BEGIN CERTIFICATE-----\n"+crt.text.strip()+"\n-----END CERTIFICATE-----\n"
            x509 = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, aux)
            cert_list.append(str(x509.get_notAfter(), 'utf-8'))
 
@@ -497,13 +499,13 @@ def main(argv):
       list_eds.append(eds)
 
    
-   result_idps = open(OUTPUT + "/IDPs.json", "w")
-   result_idps.write(json.dumps(sorted(list_idp,key=itemgetter('entityID')),sort_keys=False, indent=4, ensure_ascii=False))
-   result_idps.close()
+   with open(OUTPUT + "/IDPs.json", "w") as result_idps:
+    result_idps.write(json.dumps(sorted(list_idp,key=itemgetter('entityID')),sort_keys=False, indent=4, ensure_ascii=False))
+    result_idps.close()
 
-   result_eds = open(OUTPUT + "/EDS.json", "w",encoding=None)
-   result_eds.write(json.dumps(sorted(list_eds,key=itemgetter('entityID')),sort_keys=False, indent=4, ensure_ascii=False))
-   result_eds.close()
+   with open(OUTPUT + "/EDS.json", "w",encoding=None) as result_eds:
+    result_eds.write(json.dumps(sorted(list_eds,key=itemgetter('entityID')),sort_keys=False, indent=4, ensure_ascii=False))
+    result_eds.close()
 
 
    # AADescriptor
