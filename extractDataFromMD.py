@@ -10,6 +10,8 @@ import json
 import OpenSSL
 import urllib.request, socket
 from urllib.error import URLError, HTTPError
+from urllib.parse import urlparse
+from jinja2 import Template
 
 # timeout in seconds
 timeout = 7
@@ -322,6 +324,49 @@ def hasGCM(EntityDescriptor,namespaces):
     else:
        return False
 
+# Get OrganizationName List
+def getOrgNames(EntityDescriptor,namespaces):
+
+    orgName_list = list()
+    orgName_urls = EntityDescriptor.findall("./md:Organization/md:OrganizationName", namespaces)
+
+    for orgName in orgName_urls:
+        orgName_dict = dict()
+        orgName_dict['value'] = orgName.text
+        orgName_dict['lang'] = orgName.get("{http://www.w3.org/XML/1998/namespace}lang")
+        orgName_list.append(orgName_dict)
+
+    return orgName_list
+
+# Get OrganizationDisplayName List
+def getOrgDisplayNames(EntityDescriptor,namespaces):
+
+    orgDisplayName_list = list()
+    orgDisplayName_urls = EntityDescriptor.findall("./md:Organization/md:OrganizationDisplayName", namespaces)
+
+    for orgDisplayName in orgDisplayName_urls:
+        orgDisplayName_dict = dict()
+        orgDisplayName_dict['value'] = orgDisplayName.text
+        orgDisplayName_dict['lang'] = orgDisplayName.get("{http://www.w3.org/XML/1998/namespace}lang")
+        orgDisplayName_list.append(orgDisplayName_dict)
+
+    return orgDisplayName_list
+
+
+# Get OrganizationURL List
+def getOrgURLs(EntityDescriptor,namespaces):
+
+    orgUrl_list = list()
+    orgUrl_urls = EntityDescriptor.findall("./md:Organization/md:OrganizationURL", namespaces)
+
+    for orgUrl in orgUrl_urls:
+        orgUrl_dict = dict()
+        orgUrl_dict['value'] = orgUrl.text
+        orgUrl_dict['lang'] = orgUrl.get("{http://www.w3.org/XML/1998/namespace}lang")
+        orgUrl_list.append(orgUrl_dict)
+
+    return orgUrl_list
+
 
 def main(argv):
    try:
@@ -396,6 +441,12 @@ def main(argv):
       # Get entityID
       entityID = getEntityID(EntityDescriptor,namespaces)
 
+      # Get FQDN
+      fqdn = urlparse(entityID).netloc
+
+      # Get FQDN
+      hostname = fqdn.split('.')[0]
+
       # Get RegistrationAuthority
       regAuth = getRegistrationAuthority(EntityDescriptor,namespaces)
 
@@ -459,6 +510,9 @@ def main(argv):
       technicalContacts = getContacts(EntityDescriptor,namespaces,'technical')
       supportContacts = getContacts(EntityDescriptor,namespaces,'support')
 
+      # Get OrganizationUrl
+      orgUrl_list = getOrgURLs(EntityDescriptor,namespaces)
+
       idp = OrderedDict ([
         ('entityID',entityID),
         ('scope',idp_scopes),
@@ -479,7 +533,8 @@ def main(argv):
         ('md_certs_encr',certs_encr),
         ('NameIDFormat',name_id_formats),
         ('technicalContacts',technicalContacts),
-        ('supportContacts',supportContacts)
+        ('supportContacts',supportContacts),
+        ('organizationURL',orgUrl_list)
       ])
 
       list_idp.append(idp)
@@ -496,7 +551,11 @@ def main(argv):
 
       list_eds.append(eds)
 
-   
+      if (len(orgUrl_list) < 2):
+         orgUrl_dict = dict()
+         orgUrl_dict['lang'] = ""
+         orgUrl_list.append(orgUrl_dict)
+
    result_idps = open(OUTPUT + "/IDPs.json", "w")
    result_idps.write(json.dumps(sorted(list_idp,key=itemgetter('entityID')),sort_keys=False, indent=4, ensure_ascii=False))
    result_idps.close()
@@ -508,8 +567,12 @@ def main(argv):
 
    # AADescriptor
    for EntityDescriptor in aa:
+
       # Get entityID
       entityID = getEntityID(EntityDescriptor,namespaces)   
+
+      # Get FQDN
+      fqdn = urlparse(entityID).netloc
 
       # Get RegistrationAuthority
       regAuth = getRegistrationAuthority(EntityDescriptor,namespaces)
@@ -593,6 +656,10 @@ def main(argv):
       reqAttr = EntityDescriptor.findall("./md:SPSSODescriptor/md:AttributeConsumingService/md:RequestedAttribute", namespaces)
       requestedAttributes = list()
 
+      # Get Require eduPersonTargetedID
+      req_eptid = 0
+      req_persistent_nameid = 0
+
       if (reqAttr != None):
          for ra in reqAttr:
             auxDictAttr = {
@@ -602,15 +669,22 @@ def main(argv):
                 'isRequired':ra.get('isRequired')
             }
             requestedAttributes.append(auxDictAttr) 
+
+            if (ra.get('Name') == 'urn:oid:1.3.6.1.4.1.5923.1.1.1.10' and ra.get('isRequired') == 'true'): req_eptid = 1
+            if (name_id_formats):
+               if ('urn:oasis:names:tc:SAML:2.0:nameid-format:persistent' == name_id_formats[0]): req_persistent_nameid = 1
         
 
       sp = OrderedDict ([
             ('entityID',entityID),
+            ('DisplayName',displayName_list),
             ('registrationAuthority',regAuth),
             ('registrationInstant',regInst),
             ('pp_flag', pp_flag),
             ('pp_list', pp_list),
             ('NameIDFormat',name_id_formats),
+            ('req_eptid',req_eptid),
+            ('req_persistent_nameid',req_persistent_nameid),
             ('cert_encr',certs_encr),
             ('enc_mtds',enc_mtds),
             ('RequestedAttribute',requestedAttributes),
@@ -620,11 +694,11 @@ def main(argv):
 
       list_sp.append(sp)
 
-      #isSPgcm = hasGCM(EntityDescriptor,namespaces)
+      isSPgcm = hasGCM(EntityDescriptor,namespaces)
 
       # Create a list with SPs that doesn't have any EncryptionMethods into their Metadata
       # or that doesn't have the new AES128-GCM algorithm into their EncryptionMethods
-      if (not enc_mtds):
+      if ((not enc_mtds) or (not isSPgcm)):
          no_enc_mtds_sp = OrderedDict ([
             ('entityID',entityID),
             ('registrationAuthority',regAuth),
