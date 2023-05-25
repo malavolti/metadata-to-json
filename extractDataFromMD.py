@@ -377,7 +377,7 @@ def main(argv):
    except getopt.GetoptError as err:
       print (str(err))
       print ('Usage: ./extractDataFromMD.py -m <md_inputfile>')
-      print ("The results will write into '%s/IDPs.txt', '%s/AAs.txt' and '%s/SPs.txt'" % (OUTPUT,OUTPUT,OUTPUT))
+      print ("The results will write into '%s/IDPs.json', '%s/AAs.json' and '%s/SPs.json'" % (OUTPUT,OUTPUT,OUTPUT))
       sys.exit(2)
 
    inputfile = None
@@ -387,7 +387,7 @@ def main(argv):
    for opt, arg in opts:
       if opt in ('-h', '--help'):
          print ('Usage: ./extractDataFromMD.py -m <md_inputfile>')
-         print ("The results will write into '%s/IDPs.txt', '%s/AAs.txt' and '%s/SPs.txt'" % (OUTPUT,OUTPUT,OUTPUT))
+         print ("The results will write into '%s/IDPs.json', '%s/AAs.json' and '%s/SPs.json'" % (OUTPUT,OUTPUT,OUTPUT))
          sys.exit()
       elif opt in ('-m', '--metadata'):
          inputfile = arg
@@ -396,7 +396,7 @@ def main(argv):
          _debug = 1
       else:
          print ('Usage: ./extractDataFromMD.py -m <md_inputfile>')
-         print ("The results will write into '%s/IDPs.txt', '%s/AAs.txt' and '%s/SPs.txt'" % (OUTPUT,OUTPUT,OUTPUT))
+         print ("The results will write into '%s/IDPs.json', '%s/AAs.json' and '%s/SPs.json'" % (OUTPUT,OUTPUT,OUTPUT))
          sys.exit()
 
    namespaces = {
@@ -412,7 +412,7 @@ def main(argv):
 
    if inputfile == None:
       print ('Usage: ./extractDataFromMD.py -m <md_inputfile>')
-      print ("The results will write into '%s/IDPs.txt', '%s/AAs.txt' and '%s/SPs.txt'" % (OUTPUT,OUTPUT,OUTPUT))
+      print ("The results will write into '%s/IDPs.json', '%s/AAs.json' and '%s/SPs.json'" % (OUTPUT,OUTPUT,OUTPUT))
       sys.exit()
 
    tree = ET.parse(inputfile)
