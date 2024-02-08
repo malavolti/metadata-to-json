@@ -10,6 +10,9 @@ import json
 import os
 import OpenSSL
 import urllib.request, socket
+import datetime
+import logging
+import http.client
 from urllib.error import URLError, HTTPError
 from urllib.parse import urlparse
 from jinja2 import Template
@@ -18,8 +21,21 @@ from jinja2 import Template
 timeout = 7
 socket.setdefaulttimeout(timeout)
 
-cwd = os.getcwd()
+#cwd = os.getcwd()
+cwd = os.path.dirname(os.path.abspath(__file__))
 OUTPUT=cwd+"/output"
+LOGS_DIR=cwd+"/logs"
+
+def getLocations(EntityDescriptor,namespaces,location_list): 
+    elements_with_location = EntityDescriptor.findall('.//*[@Location]')
+    for loc in elements_with_location:
+        location = loc.get('Location')
+        fqdn = urlparse(location).netloc
+        if ("8443" in fqdn) or ("443" in fqdn):
+            continue
+        if (fqdn not in location_list):
+           location_list.append(fqdn)
+    return location_list
 
 def getEntityID(EntityDescriptor, namespaces):
     return EntityDescriptor.get('entityID')
@@ -81,23 +97,30 @@ def getPrivacyStatementURLsAndCheckThem(EntityDescriptor,namespaces,entType='sp'
     for pp in privacy_policies:
         lang = pp.get("{http://www.w3.org/XML/1998/namespace}lang")
           
-        status_pp_code = 200
-        status_pp_reason = ""
-
+        #logging.debug("PRIVACY - %s" % pp.text)
         try:
-           response = urllib.request.urlopen(pp.text,timeout=40)
-        except URLError as e:
+           response = urllib.request.urlopen(pp.text,timeout=60)
+           status_pp_code = response.status
+           status_pp_reason = response.reason
+        except (URLError, HTTPError) as e:
            if hasattr(e, 'reason'):
               status_pp_reason = e.reason
+           else:
+              status_pp_reason = "NULL"
            if hasattr(e, 'code'):
               status_pp_code = e.code
+           else:
+              status_pp_code = "NULL"
+        except http.client.RemoteDisconnected as e:
+           status_pp_code = "Timeout"
+           status_pp_reason = "Closed connection without response in 60 seconds"
 
         if (status_pp_reason):
            pp_list.append("%s - %s - %s - %s" % (str(status_pp_code),status_pp_reason,lang,pp.text))
         elif (status_pp_code != 200):
-             pp_list.append("%s - %s - %s" % (str(status_pp_code),lang,pp.text))
+           pp_list.append("%s - %s - %s" % (str(status_pp_code),lang,pp.text))
         else:
-             pp_list.append("%s - %s" % (lang,pp.text))
+           pp_list.append("%s - %s" % (lang,pp.text))
 
     return pp_list
 
@@ -150,16 +173,23 @@ def getInformationURLsAndCheckThem(EntityDescriptor,namespaces,entType='idp'):
     for infop in info_pages:
         lang = infop.get("{http://www.w3.org/XML/1998/namespace}lang")
 
-        status_info_code = 200
-        status_info_reason = ""
-
+        #logging.debug("INFO - %s" % infop.text)
         try:
-           response = urllib.request.urlopen(infop.text,timeout=40)
-        except URLError as e:
+           response = urllib.request.urlopen(infop.text,timeout=60)
+           status_info_code = response.status
+           status_info_reason = response.reason
+        except (URLError, HTTPError) as e:
            if hasattr(e, 'reason'):
               status_info_reason = e.reason
+           else:
+              status_info_reason = "NULL"
            if hasattr(e, 'code'):
               status_info_code = e.code
+           else:
+              status_info_code = "NULL"
+        except http.client.RemoteDisconnected as e:
+           status_info_code = "Timeout"
+           status_info_reason = "Closed connection without response in 60 seconds"
 
         if (status_info_reason):
            info_list.append("%s - %s - %s - %s" % (str(status_info_code),status_info_reason,lang,infop.text))
@@ -244,6 +274,51 @@ def getLogos(EntityDescriptor,namespaces,entType='idp'):
 
     return logos_list
 
+# Get MDUI Logos and check the availability
+def getLogosAndCheckThem(EntityDescriptor,namespaces,entType='idp'):
+    logos_list = list()
+
+    if (entType.lower() == 'idp'):
+       logo_urls = EntityDescriptor.findall("./md:IDPSSODescriptor/md:Extensions/mdui:UIInfo/mdui:Logo", namespaces)
+    if (entType.lower() == 'sp'):
+       logo_urls = EntityDescriptor.findall("./md:SPSSODescriptor/md:Extensions/mdui:UIInfo/mdui:Logo", namespaces)
+
+    for logo in logo_urls:
+        lang = logo.get("{http://www.w3.org/XML/1998/namespace}lang")
+
+        #logging.debug("LOGO - %s" % logo.text)
+
+        if "data:" in logo.text:
+            status_logourl_code = "data"
+            status_logourl_reason = "embedded logo"
+            continue
+        else:
+           try:
+              response = urllib.request.urlopen(logo.text,timeout=60)
+              status_logourl_code = response.status
+              status_logourl_reason = response.reason
+           except (URLError, HTTPError) as e:
+              if hasattr(e, 'reason'):
+                 status_logourl_reason = e.reason
+              else:
+                 status_logourl_reason = "NULL"
+              if hasattr(e, 'code'):
+                 status_logourl_code = e.code
+              else:
+                 status_logourl_code = "NULL"
+           except http.client.RemoteDisconnected as e:
+              status_logourl_code = "Timeout"
+              status_logourl_reason = "Closed connection without response in 60 seconds"
+
+        if (status_logourl_reason):
+           logos_list.append("%s - %s - %s - %s" % (str(status_logourl_code),status_logourl_reason,lang,logo.text))
+        elif(status_logourl_code != 200):
+           logos_list.append("%s - %s - %s" % (str(status_logourl_code),lang,logo.text))
+        else:
+           logos_list.append("%s - %s" % (lang,logo.text))
+
+    return logos_list
+
 
 # Get NameIDFormat
 def getNameIDFormat(EntityDescriptor,namespaces,entType='idp'):
@@ -268,11 +343,12 @@ def getCerts(EntityDescriptor,namespaces,entType,certType=None):
 
     cert_list = list()
     if (entType.lower() == 'idp'):
-       if (certType.lower() == 'signing'):
-          # Check Signing MD certificates
-          certs = EntityDescriptor.findall('./md:IDPSSODescriptor/md:KeyDescriptor[@use="signing"]/ds:KeyInfo/ds:X509Data/ds:X509Certificate', namespaces)
-       if (certType.lower() == 'encryption'):
-          certs = EntityDescriptor.findall('./md:IDPSSODescriptor/md:KeyDescriptor[@use="encryption"]/ds:KeyInfo/ds:X509Data/ds:X509Certificate', namespaces)
+#       if (certType.lower() == 'signing'):
+#          # Check Signing MD certificates
+#          certs = EntityDescriptor.findall('./md:IDPSSODescriptor/md:KeyDescriptor[@use="signing"]/ds:KeyInfo/ds:X509Data/ds:X509Certificate', namespaces)
+#       elif (certType.lower() == 'encryption'):
+#          certs = EntityDescriptor.findall('./md:IDPSSODescriptor/md:KeyDescriptor[@use="encryption"]/ds:KeyInfo/ds:X509Data/ds:X509Certificate', namespaces)
+      certs = EntityDescriptor.findall('./md:IDPSSODescriptor/md:KeyDescriptor/ds:KeyInfo/ds:X509Data/ds:X509Certificate', namespaces)
     if (entType.lower() == 'sp'):
       certs = EntityDescriptor.findall('./md:SPSSODescriptor/md:KeyDescriptor/ds:KeyInfo/ds:X509Data/ds:X509Certificate', namespaces)
 
@@ -330,9 +406,9 @@ def hasGCM(EntityDescriptor,namespaces):
 def getOrgNames(EntityDescriptor,namespaces):
 
     orgName_list = list()
-    orgName_urls = EntityDescriptor.findall("./md:Organization/md:OrganizationName", namespaces)
+    orgNames = EntityDescriptor.findall("./md:Organization/md:OrganizationName", namespaces)
 
-    for orgName in orgName_urls:
+    for orgName in orgNames:
         orgName_dict = dict()
         orgName_dict['value'] = orgName.text
         orgName_dict['lang'] = orgName.get("{http://www.w3.org/XML/1998/namespace}lang")
@@ -344,9 +420,9 @@ def getOrgNames(EntityDescriptor,namespaces):
 def getOrgDisplayNames(EntityDescriptor,namespaces):
 
     orgDisplayName_list = list()
-    orgDisplayName_urls = EntityDescriptor.findall("./md:Organization/md:OrganizationDisplayName", namespaces)
+    orgDisplayNames = EntityDescriptor.findall("./md:Organization/md:OrganizationDisplayName", namespaces)
 
-    for orgDisplayName in orgDisplayName_urls:
+    for orgDisplayName in orgDisplayNames:
         orgDisplayName_dict = dict()
         orgDisplayName_dict['value'] = orgDisplayName.text
         orgDisplayName_dict['lang'] = orgDisplayName.get("{http://www.w3.org/XML/1998/namespace}lang")
@@ -359,9 +435,9 @@ def getOrgDisplayNames(EntityDescriptor,namespaces):
 def getOrgURLs(EntityDescriptor,namespaces):
 
     orgUrl_list = list()
-    orgUrl_urls = EntityDescriptor.findall("./md:Organization/md:OrganizationURL", namespaces)
+    orgUrls = EntityDescriptor.findall("./md:Organization/md:OrganizationURL", namespaces)
 
-    for orgUrl in orgUrl_urls:
+    for orgUrl in orgUrls:
         orgUrl_dict = dict()
         orgUrl_dict['value'] = orgUrl.text
         orgUrl_dict['lang'] = orgUrl.get("{http://www.w3.org/XML/1998/namespace}lang")
@@ -373,29 +449,33 @@ def getOrgURLs(EntityDescriptor,namespaces):
 def main(argv):
    try:
       # 'm:hd' means that 'm' needs an argument(confirmed by ':'), while 'h' and 'd' don't need it
-      opts, args = getopt.getopt(sys.argv[1:], 'm:hd', ['metadata=','help','debug' ])
+      opts, args = getopt.getopt(sys.argv[1:], 'm:hdy:', ['metadata=','help','debug','year' ])
    except getopt.GetoptError as err:
       print (str(err))
-      print ('Usage: ./extractDataFromMD.py -m <md_inputfile>')
+      print ('Usage: ./extractDataFromMD.py -m <md_inputfile> [-y <year_4_stats>]')
       print ("The results will write into '%s/IDPs.json', '%s/AAs.json' and '%s/SPs.json'" % (OUTPUT,OUTPUT,OUTPUT))
       sys.exit(2)
 
    inputfile = None
    idp_outputfile = None
    sp_outputfile = None
+   requested_year = None
+   logging.basicConfig(filename="%s/metadata-to-json.log" % (LOGS_DIR),level=logging.DEBUG)
 
    for opt, arg in opts:
       if opt in ('-h', '--help'):
-         print ('Usage: ./extractDataFromMD.py -m <md_inputfile>')
+         print ('Usage: ./extractDataFromMD.py -m <md_inputfile> [-y <year_4_stats>]')
          print ("The results will write into '%s/IDPs.json', '%s/AAs.json' and '%s/SPs.json'" % (OUTPUT,OUTPUT,OUTPUT))
          sys.exit()
       elif opt in ('-m', '--metadata'):
          inputfile = arg
+      elif opt in ('-y', '--year'):
+         requested_year = int(arg)
       elif opt == '-d':
          global _debug
          _debug = 1
       else:
-         print ('Usage: ./extractDataFromMD.py -m <md_inputfile>')
+         print ('Usage: ./extractDataFromMD.py -m <md_inputfile> [-y <year_4_stats>]')
          print ("The results will write into '%s/IDPs.json', '%s/AAs.json' and '%s/SPs.json'" % (OUTPUT,OUTPUT,OUTPUT))
          sys.exit()
 
@@ -411,7 +491,7 @@ def main(argv):
    }
 
    if inputfile == None:
-      print ('Usage: ./extractDataFromMD.py -m <md_inputfile>')
+      print ('Usage: ./extractDataFromMD.py -m <md_inputfile> [-y <year_4_stats>]')
       print ("The results will write into '%s/IDPs.json', '%s/AAs.json' and '%s/SPs.json'" % (OUTPUT,OUTPUT,OUTPUT))
       sys.exit()
 
@@ -431,6 +511,11 @@ def main(argv):
    list_sp = list()
    list_default_gcm_sp = list()
    list_eds = list()
+   location_list = list()
+
+   if (requested_year):
+      list_idp_year_stats = list()
+      list_sp_year_stats = list()
 
    # IDPSSODescriptor
    for EntityDescriptor in idp:
@@ -438,7 +523,7 @@ def main(argv):
       ecs = "NO EC SUPPORTED"
       pp_flag = "Privacy Policy assente"
       info_flag = "Info Page assente"
-      logo_flag = "Logo non presente"
+      logo_flag = "Logo assente"
 
       # Get entityID
       entityID = getEntityID(EntityDescriptor,namespaces)
@@ -454,12 +539,16 @@ def main(argv):
 
       # Get RegistrationInstant
       regInst = getRegistrationInstant(EntityDescriptor,namespaces)
+      if (requested_year): entity_year = datetime.datetime.strptime(regInst, '%Y-%m-%dT%H:%M:%SZ').year
 
       # Get MDUI DisplayName
       displayName_list = getDisplayNames(EntityDescriptor,namespaces,'idp')
 
       # Get MDUI Descriptions
       description_list = getDescriptions(EntityDescriptor,namespaces,'idp')
+
+      # Get Locations
+      location_list = getLocations(EntityDescriptor,namespaces, location_list)
 
       # Get MDUI Keywords
       keyword_list = getKeywords(EntityDescriptor,namespaces,'idp')
@@ -495,6 +584,7 @@ def main(argv):
 
       # Get MDUI Logos
       logos_list = getLogos(EntityDescriptor,namespaces,'idp')
+      #logos_list = getLogosAndCheckThem(EntityDescriptor,namespaces,'idp')
 
       if (len(logos_list) != 0):
          logo_flag = 'Logo presente'
@@ -512,8 +602,29 @@ def main(argv):
       technicalContacts = getContacts(EntityDescriptor,namespaces,'technical')
       supportContacts = getContacts(EntityDescriptor,namespaces,'support')
 
+      # Get Organization Name
+      orgName_list = getOrgNames(EntityDescriptor,namespaces)
+
+      if (len(orgName_list) < 2):
+         orgName_dict = dict()
+         orgName_dict['lang'] = ""
+         orgName_list.append(orgName_dict)
+
+      # Get Organization DisplayName
+      orgDisplayName_list = getOrgDisplayNames(EntityDescriptor,namespaces)
+
+      if (len(orgDisplayName_list) < 2):
+         orgDisplayName_dict = dict()
+         orgDisplayName_dict['lang'] = ""
+         orgDisplayName_list.append(orgDisplayName_dict)
+
       # Get OrganizationUrl
       orgUrl_list = getOrgURLs(EntityDescriptor,namespaces)
+
+      if (len(orgUrl_list) < 2):
+         orgUrl_dict = dict()
+         orgUrl_dict['lang'] = ""
+         orgUrl_list.append(orgUrl_dict)
 
       idp = OrderedDict ([
         ('entityID',entityID),
@@ -536,10 +647,27 @@ def main(argv):
         ('NameIDFormat',name_id_formats),
         ('technicalContacts',technicalContacts),
         ('supportContacts',supportContacts),
+        ('orgName',orgName_list),
+        ('orgDisplayName',orgDisplayName_list),
         ('organizationURL',orgUrl_list)
       ])
 
       list_idp.append(idp)
+      
+      if (requested_year):
+         if (('garr-idp-prod' not in entityID) and 
+            ('eduid' not in entityID) and
+            (entity_year <= requested_year)):
+            idp4stats = OrderedDict ([
+              ('entityID',entityID),
+              ('scope',idp_scopes),
+              ('registrationInstant',regInst),
+              ('DisplayNames',displayName_list),
+              ('orgName',orgName_list),
+              ('orgDisplayName',orgDisplayName_list),
+            ])
+            
+            list_idp_year_stats.append(idp4stats)
 
       eds = OrderedDict([
         ('entityID',entityID),
@@ -553,10 +681,6 @@ def main(argv):
 
       list_eds.append(eds)
 
-      if (len(orgUrl_list) < 2):
-         orgUrl_dict = dict()
-         orgUrl_dict['lang'] = ""
-         orgUrl_list.append(orgUrl_dict)
 
    result_idps = open(OUTPUT + "/IDPs.json", "w")
    result_idps.write(json.dumps(sorted(list_idp,key=itemgetter('entityID')),sort_keys=False, indent=4, ensure_ascii=False))
@@ -564,14 +688,22 @@ def main(argv):
 
    with open(OUTPUT + "/EDS.json", "w",encoding=None) as result_eds:
     result_eds.write(json.dumps(sorted(list_eds,key=itemgetter('entityID')),sort_keys=False, indent=4, ensure_ascii=False))
-    result_eds.close()
 
+   with open(OUTPUT + "/locations-idp.json", "w",encoding=None) as locations_file:
+    locations_file.write(json.dumps(location_list))
+    
+   if (requested_year):
+      with open(OUTPUT + "/idp4stats-"+ str(requested_year) +".json", "w",encoding=None) as result_idp4stats:
+           result_idp4stats.write(json.dumps(sorted(list_idp_year_stats,key=itemgetter('entityID')),sort_keys=False, indent=4, ensure_ascii=False))
 
    # AADescriptor
    for EntityDescriptor in aa:
 
       # Get entityID
       entityID = getEntityID(EntityDescriptor,namespaces)   
+
+      # Get Locations
+      location_list = getLocations(EntityDescriptor,namespaces,location_list)
 
       # Get FQDN
       fqdn = urlparse(entityID).netloc
@@ -606,6 +738,7 @@ def main(argv):
    for EntityDescriptor in sp:
       ecs = 'NO GLOBAL ECs'
       pp_flag = 'Privacy Policy assente'
+      logo_flag = 'Logo assente'
 
       # Get entityID
       entityID = EntityDescriptor.get('entityID')
@@ -615,12 +748,16 @@ def main(argv):
 
       # Get RegistrationInstant
       regInst = getRegistrationInstant(EntityDescriptor,namespaces)
+      if (requested_year): entity_year = datetime.datetime.strptime(regInst, '%Y-%m-%dT%H:%M:%SZ').year
 
       # Get MDUI DisplayName
       displayName_list = getDisplayNames(EntityDescriptor, namespaces, 'sp')
 
       # Get MDUI Descriptions
       description_list = getDescriptions(EntityDescriptor, namespaces, 'sp')
+
+      # Get Locations
+      location_list = getLocations(EntityDescriptor,namespaces,location_list)
 
       # Get MDUI Keywords
       keyword_list = getKeywords(EntityDescriptor, namespaces,'sp')
@@ -644,9 +781,17 @@ def main(argv):
 
       # Get MDUI Privacy Policy
       pp_list = getPrivacyStatementURLs(EntityDescriptor,namespaces,'sp')
+      #pp_list = getPrivacyStatementURLsAndCheckThem(EntityDescriptor,namespaces,'sp')
 
       if (len(pp_list) != 0):
          pp_flag = 'Privacy Policy presente'
+
+      # Get MDUI Logos
+      logos_list = getLogos(EntityDescriptor,namespaces,'sp')
+      #logos_list = getLogosAndCheckThem(EntityDescriptor,namespaces,'sp')
+
+      if (len(logos_list) != 0):
+         logo_flag = 'Logo presente'
 
       # Check Encryption MD certificates
       certs_encr = getCerts(EntityDescriptor,namespaces,'sp')
@@ -657,6 +802,15 @@ def main(argv):
       # Get RequestedAttribute
       reqAttr = EntityDescriptor.findall("./md:SPSSODescriptor/md:AttributeConsumingService/md:RequestedAttribute", namespaces)
       requestedAttributes = list()
+
+      # Get Organization Name
+      orgName_list = getOrgNames(EntityDescriptor,namespaces)
+
+      # Get Organization DisplayName
+      orgDisplayName_list = getOrgDisplayNames(EntityDescriptor,namespaces)
+
+      # Get OrganizationUrl
+      orgUrl_list = getOrgURLs(EntityDescriptor,namespaces)
 
       # Get Require eduPersonTargetedID
       req_eptid = 0
@@ -684,6 +838,8 @@ def main(argv):
             ('registrationInstant',regInst),
             ('pp_flag', pp_flag),
             ('pp_list', pp_list),
+            ('logo_flag', logo_flag),
+            ('logos_list', logos_list),
             ('NameIDFormat',name_id_formats),
             ('req_eptid',req_eptid),
             ('req_persistent_nameid',req_persistent_nameid),
@@ -691,10 +847,27 @@ def main(argv):
             ('enc_mtds',enc_mtds),
             ('RequestedAttribute',requestedAttributes),
             ('ecs_list',saml_ecs),
-            ('ecs',ecs)
+            ('ecs',ecs),
+            ('orgName',orgName_list),
+            ('orgDisplayName',orgDisplayName_list),
+            ('organizationURL',orgUrl_list)
       ])
 
       list_sp.append(sp)
+
+      if (requested_year):
+         if (('sp-demo' not in entityID) and 
+            (entity_year <= requested_year)):
+            sp4stats = OrderedDict ([
+              ('entityID',entityID),
+              ('registrationInstant',regInst),
+              #('DisplayName',displayName_list)
+              ('orgName',orgName_list),
+              ('orgDisplayName',orgDisplayName_list),
+            ])
+            
+            list_sp_year_stats.append(sp4stats)
+
 
       isSPgcm = hasGCM(EntityDescriptor,namespaces)
 
@@ -716,6 +889,12 @@ def main(argv):
    default_gcm_sps.write(json.dumps(sorted(list_default_gcm_sp, key=itemgetter('entityID')),sort_keys=False,indent=4, ensure_ascii=False))
    default_gcm_sps.close()
 
+   if (requested_year):
+      with open(OUTPUT + "/sp4stats-"+ str(requested_year) +".json", "w",encoding=None) as result_sp4stats:
+           result_sp4stats.write(json.dumps(sorted(list_sp_year_stats,key=itemgetter('entityID')),sort_keys=False, indent=4, ensure_ascii=False))
+
+   with open(OUTPUT + "/locations.json", "w",encoding=None) as locations_file:
+    locations_file.write(json.dumps(list(set(location_list))))
 
 
 if __name__ == "__main__":
